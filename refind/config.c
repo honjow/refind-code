@@ -780,6 +780,16 @@ VOID ReadConfig(CHAR16 *FileName)
                     GlobalConfig.RequestedScreenHeight = 0;
             }
 
+        } else if (MyStriCmp(TokenList[0], L"screen_rotation") && (TokenCount == 2)) {
+            UINTN rotation = Atoi(TokenList[1]);
+            if (rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270) {
+                GlobalConfig.ScreenRotation = rotation;
+                LOG(1, LOG_LINE_NORMAL, L"Screen rotation set to %d degrees from config", rotation);
+            } else {
+                Print(L"Invalid screen_rotation value: %d (must be 0, 90, 180, or 270)\n", rotation);
+                LOG(1, LOG_LINE_NORMAL, L"Invalid screen_rotation value: %d", rotation);
+            }
+
         } else if (MyStriCmp(TokenList[0], L"screensaver")) {
             HandleInt(TokenList, TokenCount, &(GlobalConfig.ScreensaverTime));
 

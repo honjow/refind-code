@@ -353,6 +353,7 @@ typedef struct {
    BOOLEAN          GzippedLoaders;
    UINTN            RequestedScreenWidth;
    UINTN            RequestedScreenHeight;
+   UINTN            ScreenRotation;      // Screen rotation angle: 0, 90, 180, or 270 degrees
    UINTN            BannerBottomEdge;
    UINTN            RequestedTextMode;
    UINTN            Timeout;

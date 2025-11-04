@@ -87,6 +87,9 @@ static EFI_GRAPHICS_OUTPUT_PROTOCOL *GraphicsOutput = NULL;
 static BOOLEAN egHasGraphics  = FALSE;
 static UINTN   egScreenWidth  = 800;
 static UINTN   egScreenHeight = 600;
+static UINTN   egPhysicalWidth  = 800;   // Physical screen width
+static UINTN   egPhysicalHeight = 600;   // Physical screen height
+static UINTN   egRotationAngle  = 0;     // Screen rotation angle
 
 
 //
@@ -167,6 +170,13 @@ static VOID egDetermineScreenSize(VOID) {
     EFI_STATUS Status = EFI_SUCCESS;
     UINT32 UGAWidth, UGAHeight, UGADepth, UGARefreshRate;
 
+    // If rotation is already initialized, don't re-read from GOP as that would
+    // overwrite the virtual (rotated) screen dimensions
+    if (egRotationAngle != 0 && egScreenWidth != 0 && egScreenHeight != 0) {
+        egHasGraphics = TRUE;
+        return;
+    }
+
     // get screen size
     egHasGraphics = FALSE;
     if (GraphicsOutput != NULL) {
@@ -195,6 +205,34 @@ VOID egGetScreenSize(OUT UINTN *ScreenWidth, OUT UINTN *ScreenHeight)
         *ScreenHeight = egScreenHeight;
 } // VOID egGetScreenSize()
 
+// Transform virtual coordinates to physical coordinates based on rotation angle
+// The virtual top-left corner maps to different positions after rotation
+static VOID egTransformCoordinates(IN UINTN X, IN UINTN Y,
+                                   IN UINTN VirtualWidth, IN UINTN VirtualHeight,
+                                   OUT UINTN *PhysX, OUT UINTN *PhysY) {
+    switch (egRotationAngle) {
+        case 90:
+            // 90° clockwise: virtual top-left becomes rotated image's top-right
+            // So we need to shift left by the rotated width (which is virtual height)
+            *PhysX = egScreenHeight - Y - VirtualHeight;
+            *PhysY = X;
+            break;
+        case 180:
+            *PhysX = egScreenWidth - X - VirtualWidth;
+            *PhysY = egScreenHeight - Y - VirtualHeight;
+            break;
+        case 270:
+            // 270° clockwise: virtual top-left becomes rotated image's bottom-left
+            *PhysX = Y;
+            *PhysY = egScreenWidth - X - VirtualWidth;
+            break;
+        default:
+            *PhysX = X;
+            *PhysY = Y;
+            break;
+    }
+}
+
 VOID egInitScreen(VOID)
 {
     EFI_STATUS Status = EFI_SUCCESS;
@@ -217,6 +255,23 @@ VOID egInitScreen(VOID)
         egSetMaxResolution();
     }
     egDetermineScreenSize();
+    
+    // Save physical screen dimensions
+    egPhysicalWidth = egScreenWidth;
+    egPhysicalHeight = egScreenHeight;
+    egRotationAngle = GlobalConfig.ScreenRotation;
+    
+    // Swap screen dimensions for 90/270 degree rotations
+    if (egRotationAngle == 90 || egRotationAngle == 270) {
+        UINTN temp = egScreenWidth;
+        egScreenWidth = egScreenHeight;
+        egScreenHeight = temp;
+        
+        LOG(1, LOG_LINE_NORMAL, 
+            L"Screen rotated %d degrees: Physical %dx%d -> Virtual %dx%d",
+            egRotationAngle, egPhysicalWidth, egPhysicalHeight,
+            egScreenWidth, egScreenHeight);
+    }
 } // VOID egInitScreen()
 
 // Convert a graphics mode (in *ModeWidth) to a width and height (returned in
@@ -468,9 +523,9 @@ VOID egClearScreen(IN EG_PIXEL *Color)
         // layout, and the header from TianoCore actually defines them
         // to be the same type.
         refit_call10_wrapper(GraphicsOutput->Blt, GraphicsOutput, (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)&FillColor, EfiBltVideoFill,
-                             0, 0, 0, 0, egScreenWidth, egScreenHeight, 0);
+                             0, 0, 0, 0, egPhysicalWidth, egPhysicalHeight, 0);
     } else if (UgaDraw != NULL) {
-        refit_call10_wrapper(UgaDraw->Blt, UgaDraw, &FillColor, EfiUgaVideoFill, 0, 0, 0, 0, egScreenWidth, egScreenHeight, 0);
+        refit_call10_wrapper(UgaDraw->Blt, UgaDraw, &FillColor, EfiUgaVideoFill, 0, 0, 0, 0, egPhysicalWidth, egPhysicalHeight, 0);
     }
 }
 
@@ -501,18 +556,43 @@ VOID egDrawImage(IN EG_IMAGE *Image, IN UINTN ScreenPosX, IN UINTN ScreenPosY)
        egComposeImage(CompImage, Image, 0, 0);
     }
 
+    // Apply rotation if needed
+    EG_IMAGE *FinalImage = CompImage;
+    UINTN FinalX = ScreenPosX;
+    UINTN FinalY = ScreenPosY;
+    
+    if (egRotationAngle != 0) {
+        FinalImage = egRotateImage(CompImage, egRotationAngle);
+        if (FinalImage == NULL) {
+            FinalImage = CompImage;
+        } else if ((CompImage != GlobalConfig.ScreenBackground) && (CompImage != Image)) {
+            egFreeImage(CompImage);
+        }
+        // Transform coordinates with original (virtual) image dimensions
+        // We use CompImage dimensions because the formula calculates where
+        // the virtual rectangle should map to on the physical screen
+        egTransformCoordinates(ScreenPosX, ScreenPosY, 
+                              CompImage->Width, CompImage->Height,
+                              &FinalX, &FinalY);
+    }
+
     if (GraphicsOutput != NULL) {
        refit_call10_wrapper(GraphicsOutput->Blt, GraphicsOutput,
-                            (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)CompImage->PixelData,
-                            EfiBltBufferToVideo, 0, 0, ScreenPosX, ScreenPosY, CompImage->Width,
-                            CompImage->Height, 0);
+                            (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)FinalImage->PixelData,
+                            EfiBltBufferToVideo, 0, 0, FinalX, FinalY, FinalImage->Width,
+                            FinalImage->Height, 0);
     } else if (UgaDraw != NULL) {
-       refit_call10_wrapper(UgaDraw->Blt, UgaDraw, (EFI_UGA_PIXEL *)CompImage->PixelData,
-                            EfiUgaBltBufferToVideo, 0, 0, ScreenPosX, ScreenPosY,
-                            CompImage->Width, CompImage->Height, 0);
+       refit_call10_wrapper(UgaDraw->Blt, UgaDraw, (EFI_UGA_PIXEL *)FinalImage->PixelData,
+                            EfiUgaBltBufferToVideo, 0, 0, FinalX, FinalY,
+                            FinalImage->Width, FinalImage->Height, 0);
     }
-    if ((CompImage != GlobalConfig.ScreenBackground) && (CompImage != Image))
-       egFreeImage(CompImage);
+    
+    // Cleanup
+    if (egRotationAngle != 0 && FinalImage != CompImage) {
+        egFreeImage(FinalImage);
+    } else if ((CompImage != GlobalConfig.ScreenBackground) && (CompImage != Image)) {
+        egFreeImage(CompImage);
+    }
 } /* VOID egDrawImage() */
 
 // Display an unselected icon on the screen, so that the background image shows
@@ -541,6 +621,17 @@ VOID egDrawImageArea(IN EG_IMAGE *Image,
     if (AreaWidth == 0)
         return;
 
+    // If rotation is enabled, use unified drawing path with rotation support
+    if (egRotationAngle != 0) {
+        EG_IMAGE *CroppedImage = egCropImage(Image, AreaPosX, AreaPosY, AreaWidth, AreaHeight);
+        if (CroppedImage != NULL) {
+            egDrawImage(CroppedImage, ScreenPosX, ScreenPosY);
+            egFreeImage(CroppedImage);
+        }
+        return;
+    }
+
+    // No rotation: direct Blt for better performance
     if (GraphicsOutput != NULL) {
         refit_call10_wrapper(GraphicsOutput->Blt, GraphicsOutput, (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)Image->PixelData,
                              EfiBltBufferToVideo, AreaPosX, AreaPosY, ScreenPosX, ScreenPosY, AreaWidth, AreaHeight,
@@ -590,6 +681,20 @@ VOID egDisplayMessage(IN CHAR16 *Text, EG_PIXEL *BGColor, UINTN PositionCode) {
 // Copy the current contents of the display into an EG_IMAGE....
 // Returns pointer if successful, NULL if not.
 EG_IMAGE * egCopyScreen(VOID) {
+    EG_IMAGE *ScreenCopy = NULL;
+    EG_IMAGE *RotatedCopy = NULL;
+    
+    // When rotation is enabled, read from physical screen and then rotate
+    if (egRotationAngle != 0) {
+        ScreenCopy = egCopyScreenArea(0, 0, egPhysicalWidth, egPhysicalHeight);
+        if (ScreenCopy != NULL) {
+            RotatedCopy = egRotateImage(ScreenCopy, egRotationAngle);
+            egFreeImage(ScreenCopy);
+            return RotatedCopy;
+        }
+        return NULL;
+    }
+    
     return egCopyScreenArea(0, 0, egScreenWidth, egScreenHeight);
 } // EG_IMAGE * egCopyScreen()
 

@@ -725,4 +725,70 @@ VOID egCopyPlane(IN UINT8 *SrcPlanePtr, IN UINT8 *DestPlanePtr, IN UINTN PixelCo
     }
 }
 
+// Rotate an image by specified angle (0, 90, 180, 270 degrees)
+// Returns a new rotated image or NULL if failed
+EG_IMAGE * egRotateImage(IN EG_IMAGE *Image, IN UINTN Angle) {
+    EG_IMAGE *NewImage = NULL;
+    UINTN x, y;
+    UINTN NewWidth, NewHeight;
+    
+    if (Image == NULL) {
+        return NULL;
+    }
+    
+    Angle = Angle % 360;
+    if (Angle == 0) {
+        return egCopyImage(Image);
+    }
+    
+    if (Angle == 90 || Angle == 270) {
+        NewWidth = Image->Height;
+        NewHeight = Image->Width;
+    } else {
+        NewWidth = Image->Width;
+        NewHeight = Image->Height;
+    }
+    
+    NewImage = egCreateImage(NewWidth, NewHeight, Image->HasAlpha);
+    if (NewImage == NULL) {
+        LOG(1, LOG_LINE_NORMAL, L"Failed to create rotated image");
+        return NULL;
+    }
+    
+    for (y = 0; y < Image->Height; y++) {
+        for (x = 0; x < Image->Width; x++) {
+            UINTN srcIndex = y * Image->Width + x;
+            UINTN dstIndex;
+            UINTN dstX, dstY;
+            
+            switch (Angle) {
+                case 90:
+                    // Clockwise 90 degrees
+                    dstX = NewWidth - 1 - y;
+                    dstY = x;
+                    break;
+                case 180:
+                    // 180 degrees
+                    dstX = NewWidth - 1 - x;
+                    dstY = NewHeight - 1 - y;
+                    break;
+                case 270:
+                    // Clockwise 270 degrees (counter-clockwise 90)
+                    dstX = y;
+                    dstY = NewHeight - 1 - x;
+                    break;
+                default:
+                    dstX = x;
+                    dstY = y;
+                    break;
+            }
+            
+            dstIndex = dstY * NewWidth + dstX;
+            NewImage->PixelData[dstIndex] = Image->PixelData[srcIndex];
+        }
+    }
+    
+    return NewImage;
+}
+
 /* EOF */

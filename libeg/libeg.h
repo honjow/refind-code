@@ -148,6 +148,8 @@ EG_IMAGE * egCopyScreenArea(UINTN XPos, UINTN YPos, UINTN Width, UINTN Height);
 VOID egScreenShot(VOID);
 BOOLEAN egSetTextMode(UINT32 RequestedMode);
 
+EG_IMAGE * egRotateImage(IN EG_IMAGE *Image, IN UINTN Angle);
+
 EG_IMAGE * egDecodePNG(IN UINT8 *FileData, IN UINTN FileDataLength, IN UINTN IconSize, IN BOOLEAN WantAlpha);
 EG_IMAGE * egDecodeJPEG(IN UINT8 *FileData, IN UINTN FileDataLength, IN UINTN IconSize, IN BOOLEAN WantAlpha);
 

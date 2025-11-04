@@ -110,6 +110,7 @@ REFIT_CONFIG GlobalConfig = { /* TextOnly = */ FALSE,
 #endif
                               /* RequestedScreenWidth = */ 0,
                               /* RequestedScreenHeight = */ 0,
+                              /* ScreenRotation = */ 0,
                               /* BannerBottomEdge = */ 0,
                               /* RequestedTextMode = */ DONT_CHANGE_TEXT_MODE,
                               /* Timeout = */ 20,
