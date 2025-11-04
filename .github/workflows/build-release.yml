@@ -1,0 +1,99 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    tags:
+      - 'v.*.*.*'  # Matches v.0.14.2 format
+
+jobs:
+  build:
+    name: Build rEFInd
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnu-efi build-essential uuid-dev
+      
+      - name: Build rEFInd
+        run: |
+          make gnuefi
+      
+      - name: Check build outputs
+        run: |
+          echo "Build outputs:"
+          ls -lh refind/refind_*.efi
+      
+      # 只在打tag时执行以下步骤
+      - name: Prepare release artifacts
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          mkdir -p release
+          cp refind/refind_x64.efi release/
+          echo "Release contents:"
+          find release -type f
+      
+      - name: Create release archive
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cd release
+          tar -czf ../refind-${GITHUB_REF_NAME}.tar.gz *
+          cd ..
+          sha256sum refind-${GITHUB_REF_NAME}.tar.gz > refind-${GITHUB_REF_NAME}.tar.gz.sha256
+      
+      - name: Generate release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cat > RELEASE_NOTES.md << EOF
+          ## rEFInd with Screen Rotation Support
+          
+          This build includes screen rotation feature for portrait displays.
+          
+          ### Usage
+          
+          Add to \`refind.conf\`:
+          \`\`\`conf
+          screen_rotation 90  # or 0, 180, 270
+          \`\`\`
+          
+          ### Installation
+          
+          \`\`\`bash
+          tar -xzf refind-${GITHUB_REF_NAME}.tar.gz
+          sudo cp refind_x64.efi /boot/efi/EFI/refind/
+          \`\`\`
+          
+          ---
+          
+          **Build**: $(date -u +'%Y-%m-%d %H:%M:%S UTC') | **Commit**: ${GITHUB_SHA::8}
+          EOF
+      
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            refind-${{ github.ref_name }}.tar.gz
+            refind-${{ github.ref_name }}.tar.gz.sha256
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: refind-build-${{ github.sha }}
+          path: refind/refind_*.efi
+          retention-days: ${{ startsWith(github.ref, 'refs/tags/') && 90 || 7 }}
+
