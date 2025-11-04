@@ -1,0 +1,62 @@
+# Compiled Object files
+*.o
+*.obj
+
+# EFI binaries
+*.efi
+*.so
+*.dll
+
+# Static libraries
+*.a
+*.lib
+
+# Build directories
+Build/
+build/
+drivers_*/
+
+# Editor backup and temporary files
+*~
+*.swp
+*.swo
+.*.swp
+.*.swo
+*.bak
+*.orig
+
+# IDE specific files
+.vscode/
+.idea/
+*.sublime-*
+.DS_Store
+
+# Log files
+*.log
+
+# Compressed files (except source archives)
+# Keep source archives but ignore test builds
+# *.tar.gz
+# *.zip
+
+# EDK2 build files
+Conf/.cache
+Conf/build_rule.txt
+Conf/target.txt
+Conf/tools_def.txt
+
+# Test and temporary files
+test.img
+*.img
+
+# Keep important documentation and configuration samples
+!refind.conf-sample
+!*.txt
+!*.md
+!README*
+!LICENSE*
+!BUILDING.txt
+
+# Keep implementation documentation
+!SCREEN_ROTATION_IMPLEMENTATION.md
+
