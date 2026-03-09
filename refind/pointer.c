@@ -199,13 +199,57 @@ EFI_STATUS pdUpdateState() {
         if(!EFI_ERROR(PointerStatus) && EFI_ERROR(Status)) {
             Status = EFI_SUCCESS;
 
+            UINT64 AbsMaxX = APointerProtocol[Index]->Mode->AbsoluteMaxX;
+            UINT64 AbsMaxY = APointerProtocol[Index]->Mode->AbsoluteMaxY;
+
+            // Map physical touch coordinates to virtual screen coordinates,
+            // applying the inverse of the screen rotation transform so that
+            // touch position matches the rotated display.
+            switch (GlobalConfig.ScreenRotation) {
+                case 90:
+                    // 90° CW: physical X -> flipped virtual Y, physical Y -> virtual X
+                    // After rotation UGAWidth=PhysH, UGAHeight=PhysW
 #ifdef EFI32
-            State.X = (UINTN)DivU64x64Remainder(APointerState.CurrentX * UGAWidth, APointerProtocol[Index]->Mode->AbsoluteMaxX, NULL);
-            State.Y = (UINTN)DivU64x64Remainder(APointerState.CurrentY * UGAHeight, APointerProtocol[Index]->Mode->AbsoluteMaxY, NULL);
+                    State.X = (UINTN)DivU64x64Remainder(APointerState.CurrentY * UGAWidth,  AbsMaxY, NULL);
+                    State.Y = UGAHeight - (UINTN)DivU64x64Remainder(APointerState.CurrentX * UGAHeight, AbsMaxX, NULL);
 #else
-            State.X = (APointerState.CurrentX * UGAWidth) / APointerProtocol[Index]->Mode->AbsoluteMaxX;
-            State.Y = (APointerState.CurrentY * UGAHeight) / APointerProtocol[Index]->Mode->AbsoluteMaxY;
+                    State.X = (APointerState.CurrentY * UGAWidth)  / AbsMaxY;
+                    State.Y = UGAHeight - (APointerState.CurrentX * UGAHeight) / AbsMaxX;
 #endif
+                    break;
+                case 180:
+                    // 180°: both axes flipped
+#ifdef EFI32
+                    State.X = (UINTN)DivU64x64Remainder((AbsMaxX - APointerState.CurrentX) * UGAWidth,  AbsMaxX, NULL);
+                    State.Y = (UINTN)DivU64x64Remainder((AbsMaxY - APointerState.CurrentY) * UGAHeight, AbsMaxY, NULL);
+#else
+                    State.X = ((AbsMaxX - APointerState.CurrentX) * UGAWidth)  / AbsMaxX;
+                    State.Y = ((AbsMaxY - APointerState.CurrentY) * UGAHeight) / AbsMaxY;
+#endif
+                    break;
+                case 270:
+                    // 270° CW: physical X -> virtual Y, physical Y -> flipped virtual X
+                    // After rotation UGAWidth=PhysH, UGAHeight=PhysW
+#ifdef EFI32
+                    State.X = UGAWidth - (UINTN)DivU64x64Remainder(APointerState.CurrentY * UGAWidth,  AbsMaxY, NULL);
+                    State.Y = (UINTN)DivU64x64Remainder(APointerState.CurrentX * UGAHeight, AbsMaxX, NULL);
+#else
+                    State.X = UGAWidth - (APointerState.CurrentY * UGAWidth)  / AbsMaxY;
+                    State.Y = (APointerState.CurrentX * UGAHeight) / AbsMaxX;
+#endif
+                    break;
+                default:
+                    // 0°: direct linear mapping
+#ifdef EFI32
+                    State.X = (UINTN)DivU64x64Remainder(APointerState.CurrentX * UGAWidth,  AbsMaxX, NULL);
+                    State.Y = (UINTN)DivU64x64Remainder(APointerState.CurrentY * UGAHeight, AbsMaxY, NULL);
+#else
+                    State.X = (APointerState.CurrentX * UGAWidth)  / AbsMaxX;
+                    State.Y = (APointerState.CurrentY * UGAHeight) / AbsMaxY;
+#endif
+                    break;
+            }
+
             State.Holding = (APointerState.ActiveButtons & EFI_ABSP_TouchActive);
         }
     }
